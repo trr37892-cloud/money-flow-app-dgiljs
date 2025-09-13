@@ -1,25 +1,39 @@
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { commonStyles, colors } from '../styles/commonStyles';
+import { useAuth } from '../contexts/AuthContext';
 import { useFinancialData } from '../hooks/useFinancialData';
+import { commonStyles, colors } from '../styles/commonStyles';
 import DashboardCard from '../components/DashboardCard';
 import BottomTabBar from '../components/BottomTabBar';
-import ExpensesScreen from './expenses';
 import IncomeScreen from './income';
+import ExpensesScreen from './expenses';
 import LoansScreen from './loans';
 import DebtsScreen from './debts';
+import AuthScreen from './auth';
+import Icon from '../components/Icon';
 
 export default function MainScreen() {
+  const { user, logout, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [refreshing, setRefreshing] = useState(false);
-  const {
-    getCurrentMonthData,
-    getTotalLoanBalance,
-    getTotalDebtBalance,
-    loading,
-  } = useFinancialData();
+  const financialData = useFinancialData();
+
+  // Show auth screen if user is not logged in
+  if (authLoading) {
+    return (
+      <SafeAreaView style={commonStyles.container}>
+        <View style={[commonStyles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={commonStyles.text}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen />;
+  }
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -27,6 +41,10 @@ export default function MainScreen() {
     setTimeout(() => {
       setRefreshing(false);
     }, 1000);
+  };
+
+  const handleLogout = async () => {
+    await logout();
   };
 
   const renderContent = () => {
@@ -45,34 +63,24 @@ export default function MainScreen() {
   };
 
   const DashboardContent = ({ onRefresh, refreshing }: { onRefresh: () => void; refreshing: boolean }) => {
-    if (loading) {
-      return (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      );
-    }
-
-    const monthlyData = getCurrentMonthData();
-    const totalLoanBalance = getTotalLoanBalance();
-    const totalDebtBalance = getTotalDebtBalance();
+    const monthlyData = financialData.getCurrentMonthData();
+    const totalLoanBalance = financialData.getTotalLoanBalance();
+    const totalDebtBalance = financialData.getTotalDebtBalance();
 
     return (
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Financial Dashboard</Text>
-          <Text style={styles.headerSubtitle}>
-            {new Date().toLocaleDateString('en-US', { 
-              month: 'long', 
-              year: 'numeric' 
-            })}
-          </Text>
+          <View>
+            <Text style={styles.welcomeText}>Welcome back,</Text>
+            <Text style={styles.usernameText}>{user.username}</Text>
+          </View>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Icon name="log-out-outline" size={24} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.cardsContainer}>
@@ -88,7 +96,7 @@ export default function MainScreen() {
             title="Monthly Expenses"
             amount={monthlyData.totalExpenses}
             color={colors.danger}
-            iconName="card"
+            iconName="trending-down"
             onPress={() => setActiveTab('expenses')}
           />
           
@@ -96,7 +104,7 @@ export default function MainScreen() {
             title="Net Income"
             amount={monthlyData.netIncome}
             color={monthlyData.netIncome >= 0 ? colors.success : colors.danger}
-            iconName="analytics"
+            iconName="calculator"
             subtitle="This month"
           />
           
@@ -104,45 +112,19 @@ export default function MainScreen() {
             title="Loan Balances"
             amount={totalLoanBalance}
             color={colors.warning}
-            iconName="wallet"
+            iconName="card"
             onPress={() => setActiveTab('loans')}
+            subtitle="Total owed"
           />
           
           <DashboardCard
             title="Money Owed to Me"
             amount={totalDebtBalance}
-            color={colors.primary}
+            color={colors.accent}
             iconName="people"
             onPress={() => setActiveTab('debts')}
+            subtitle="Total owed"
           />
-          
-          <DashboardCard
-            title="Available Cash"
-            amount={monthlyData.netIncome - (totalLoanBalance * 0.1)} // Rough estimate
-            color={colors.accent}
-            iconName="cash"
-            subtitle="Estimated"
-          />
-        </View>
-
-        <View style={styles.summarySection}>
-          <Text style={styles.summaryTitle}>Quick Summary</Text>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryText}>
-              This month you've earned <Text style={[styles.summaryAmount, { color: colors.success }]}>
-                ${monthlyData.totalIncome.toFixed(2)}
-              </Text> and spent <Text style={[styles.summaryAmount, { color: colors.danger }]}>
-                ${monthlyData.totalExpenses.toFixed(2)}
-              </Text>.
-            </Text>
-            <Text style={styles.summaryText}>
-              Your net income is <Text style={[styles.summaryAmount, { 
-                color: monthlyData.netIncome >= 0 ? colors.success : colors.danger 
-              }]}>
-                ${monthlyData.netIncome.toFixed(2)}
-              </Text>.
-            </Text>
-          </View>
         </View>
       </ScrollView>
     );
@@ -151,7 +133,9 @@ export default function MainScreen() {
   return (
     <SafeAreaView style={commonStyles.container}>
       <View style={styles.container}>
-        {renderContent()}
+        <View style={styles.content}>
+          {renderContent()}
+        </View>
         <BottomTabBar activeTab={activeTab} onTabPress={setActiveTab} />
       </View>
     </SafeAreaView>
@@ -163,64 +147,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  content: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: colors.textSecondary,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 24,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  headerSubtitle: {
+  welcomeText: {
     fontSize: 16,
     color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  usernameText: {
+    fontSize: 24,
+    color: colors.text,
+    fontWeight: '800',
+  },
+  logoutButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: colors.backgroundAlt,
   },
   cardsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  summarySection: {
-    marginTop: 8,
-  },
-  summaryTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 12,
-  },
-  summaryCard: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  summaryText: {
-    fontSize: 16,
-    color: colors.text,
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  summaryAmount: {
-    fontWeight: '600',
+    gap: 16,
   },
 });

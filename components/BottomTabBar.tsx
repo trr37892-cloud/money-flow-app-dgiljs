@@ -1,8 +1,8 @@
 
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { colors } from '../styles/commonStyles';
 import Icon from './Icon';
+import { colors } from '../styles/commonStyles';
 
 interface TabItem {
   key: string;
@@ -17,13 +17,13 @@ interface BottomTabBarProps {
 
 const tabs: TabItem[] = [
   { key: 'dashboard', title: 'Dashboard', iconName: 'home' },
-  { key: 'expenses', title: 'Expenses', iconName: 'card' },
+  { key: 'expenses', title: 'Expenses', iconName: 'trending-down' },
   { key: 'income', title: 'Income', iconName: 'trending-up' },
-  { key: 'loans', title: 'Loans', iconName: 'wallet' },
+  { key: 'loans', title: 'Loans', iconName: 'card' },
   { key: 'debts', title: 'Debts', iconName: 'people' },
 ];
 
-const BottomTabBar: React.FC<BottomTabBarProps> = ({ activeTab, onTabPress }) => {
+export default function BottomTabBar({ activeTab, onTabPress }: BottomTabBarProps) {
   return (
     <View style={styles.container}>
       {tabs.map((tab) => (
@@ -35,12 +35,12 @@ const BottomTabBar: React.FC<BottomTabBarProps> = ({ activeTab, onTabPress }) =>
           <Icon
             name={tab.iconName}
             size={24}
-            color={activeTab === tab.key ? colors.primary : colors.textSecondary}
+            color={activeTab === tab.key ? colors.primary : colors.text}
           />
           <Text
             style={[
               styles.tabText,
-              { color: activeTab === tab.key ? colors.primary : colors.textSecondary }
+              { color: activeTab === tab.key ? colors.primary : colors.text }
             ]}
           >
             {tab.title}
@@ -49,12 +49,12 @@ const BottomTabBar: React.FC<BottomTabBarProps> = ({ activeTab, onTabPress }) =>
       ))}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: colors.card,
+    backgroundColor: colors.background,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingVertical: 8,
@@ -67,9 +67,7 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
     marginTop: 4,
   },
 });
-
-export default BottomTabBar;

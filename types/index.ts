@@ -54,3 +54,17 @@ export interface MonthlyData {
   totalIncome: number;
   netIncome: number;
 }
+
+export interface User {
+  id: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface AuthContextType {
+  user: User | null;
+  login: (username: string, password: string) => Promise<boolean>;
+  register: (username: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  loading: boolean;
+}

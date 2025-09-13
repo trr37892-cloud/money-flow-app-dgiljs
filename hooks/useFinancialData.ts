@@ -2,28 +2,42 @@
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Expense, Income, Loan, Debt, MonthlyData } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
-const STORAGE_KEYS = {
-  EXPENSES: 'expenses',
-  INCOME: 'income',
-  LOANS: 'loans',
-  DEBTS: 'debts',
-};
+const getStorageKeys = (userId: string) => ({
+  EXPENSES: `expenses_${userId}`,
+  INCOME: `income_${userId}`,
+  LOANS: `loans_${userId}`,
+  DEBTS: `debts_${userId}`,
+});
 
 export const useFinancialData = () => {
+  const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [income, setIncome] = useState<Income[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Load data from storage
+  // Load data from storage when user changes
   useEffect(() => {
-    loadAllData();
-  }, []);
+    if (user) {
+      loadAllData();
+    } else {
+      // Clear data when user logs out
+      setExpenses([]);
+      setIncome([]);
+      setLoans([]);
+      setDebts([]);
+      setLoading(false);
+    }
+  }, [user]);
 
   const loadAllData = async () => {
+    if (!user) return;
+    
     try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
       const [expensesData, incomeData, loansData, debtsData] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.EXPENSES),
         AsyncStorage.getItem(STORAGE_KEYS.INCOME),
@@ -35,6 +49,8 @@ export const useFinancialData = () => {
       if (incomeData) setIncome(JSON.parse(incomeData));
       if (loansData) setLoans(JSON.parse(loansData));
       if (debtsData) setDebts(JSON.parse(debtsData));
+      
+      console.log('Financial data loaded for user:', user.username);
     } catch (error) {
       console.log('Error loading financial data:', error);
     } finally {
@@ -43,7 +59,10 @@ export const useFinancialData = () => {
   };
 
   const saveExpenses = async (newExpenses: Expense[]) => {
+    if (!user) return;
+    
     try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
       await AsyncStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(newExpenses));
       setExpenses(newExpenses);
     } catch (error) {
@@ -52,7 +71,10 @@ export const useFinancialData = () => {
   };
 
   const saveIncome = async (newIncome: Income[]) => {
+    if (!user) return;
+    
     try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
       await AsyncStorage.setItem(STORAGE_KEYS.INCOME, JSON.stringify(newIncome));
       setIncome(newIncome);
     } catch (error) {
@@ -61,7 +83,10 @@ export const useFinancialData = () => {
   };
 
   const saveLoans = async (newLoans: Loan[]) => {
+    if (!user) return;
+    
     try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
       await AsyncStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(newLoans));
       setLoans(newLoans);
     } catch (error) {
@@ -70,7 +95,10 @@ export const useFinancialData = () => {
   };
 
   const saveDebts = async (newDebts: Debt[]) => {
+    if (!user) return;
+    
     try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
       await AsyncStorage.setItem(STORAGE_KEYS.DEBTS, JSON.stringify(newDebts));
       setDebts(newDebts);
     } catch (error) {
