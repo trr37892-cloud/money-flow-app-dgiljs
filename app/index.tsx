@@ -1,31 +1,67 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useFinancialData } from '../hooks/useFinancialData';
-import { commonStyles, colors } from '../styles/commonStyles';
+import { colors, commonStyles } from '../styles/commonStyles';
+import Icon from '../components/Icon';
 import DashboardCard from '../components/DashboardCard';
 import BottomTabBar from '../components/BottomTabBar';
-import IncomeScreen from './income';
+import AuthScreen from './auth';
 import ExpensesScreen from './expenses';
+import IncomeScreen from './income';
 import LoansScreen from './loans';
 import DebtsScreen from './debts';
-import AuthScreen from './auth';
-import Icon from '../components/Icon';
+import DatabaseSetup from '../components/DatabaseSetup';
 
-export default function MainScreen() {
+const MainScreen: React.FC = () => {
   const { user, logout, loading: authLoading } = useAuth();
+  const { 
+    expenses, 
+    income, 
+    loans, 
+    debts, 
+    loading: dataLoading,
+    getCurrentMonthData,
+    getTotalLoanBalance,
+    getTotalDebtBalance 
+  } = useFinancialData();
+  
   const [activeTab, setActiveTab] = useState('dashboard');
   const [refreshing, setRefreshing] = useState(false);
-  const financialData = useFinancialData();
+  const [showDatabaseSetup, setShowDatabaseSetup] = useState(false);
 
-  // Show auth screen if user is not logged in
+  // Check if we need to show database setup
+  useEffect(() => {
+    if (user && !dataLoading) {
+      // If user is logged in but we have connection issues, show setup
+      const hasData = expenses.length > 0 || income.length > 0 || loans.length > 0 || debts.length > 0;
+      if (!hasData) {
+        // This could mean either no data yet or connection issues
+        // For now, we'll assume it's working if user is authenticated
+        console.log('User authenticated, data sync ready');
+      }
+    }
+  }, [user, dataLoading, expenses, income, loans, debts]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    // The useFinancialData hook will automatically reload data when user changes
+    // For manual refresh, we could add a refresh function to the hook
+    setTimeout(() => setRefreshing(false), 1000);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setActiveTab('dashboard');
+  };
+
   if (authLoading) {
     return (
-      <SafeAreaView style={commonStyles.container}>
-        <View style={[commonStyles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-          <Text style={commonStyles.text}>Loading...</Text>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
     );
@@ -35,17 +71,20 @@ export default function MainScreen() {
     return <AuthScreen />;
   }
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    // Simulate refresh delay
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
-  };
-
-  const handleLogout = async () => {
-    await logout();
-  };
+  if (showDatabaseSetup) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setShowDatabaseSetup(false)}>
+            <Icon name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Database Setup</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <DatabaseSetup />
+      </SafeAreaView>
+    );
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -63,24 +102,22 @@ export default function MainScreen() {
   };
 
   const DashboardContent = ({ onRefresh, refreshing }: { onRefresh: () => void; refreshing: boolean }) => {
-    const monthlyData = financialData.getCurrentMonthData();
-    const totalLoanBalance = financialData.getTotalLoanBalance();
-    const totalDebtBalance = financialData.getTotalDebtBalance();
+    const monthlyData = getCurrentMonthData();
+    const totalLoanBalance = getTotalLoanBalance();
+    const totalDebtBalance = getTotalDebtBalance();
 
     return (
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.welcomeText}>Welcome back,</Text>
-            <Text style={styles.usernameText}>{user.username}</Text>
-          </View>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Icon name="log-out-outline" size={24} color={colors.textSecondary} />
-          </TouchableOpacity>
+        <View style={styles.welcomeSection}>
+          <Text style={styles.welcomeText}>Welcome back, {user.username}!</Text>
+          <Text style={styles.syncStatus}>
+            <Icon name="cloud-done" size={16} color={colors.success} /> Synced across devices
+          </Text>
         </View>
 
         <View style={styles.cardsContainer}>
@@ -95,7 +132,7 @@ export default function MainScreen() {
           <DashboardCard
             title="Monthly Expenses"
             amount={monthlyData.totalExpenses}
-            color={colors.danger}
+            color={colors.error}
             iconName="trending-down"
             onPress={() => setActiveTab('expenses')}
           />
@@ -103,13 +140,13 @@ export default function MainScreen() {
           <DashboardCard
             title="Net Income"
             amount={monthlyData.netIncome}
-            color={monthlyData.netIncome >= 0 ? colors.success : colors.danger}
-            iconName="calculator"
+            color={monthlyData.netIncome >= 0 ? colors.success : colors.error}
+            iconName="analytics"
             subtitle="This month"
           />
           
           <DashboardCard
-            title="Loan Balances"
+            title="Loan Balance"
             amount={totalLoanBalance}
             color={colors.warning}
             iconName="card"
@@ -118,9 +155,9 @@ export default function MainScreen() {
           />
           
           <DashboardCard
-            title="Money Owed to Me"
+            title="Money Owed to You"
             amount={totalDebtBalance}
-            color={colors.accent}
+            color={colors.info}
             iconName="people"
             onPress={() => setActiveTab('debts')}
             subtitle="Total owed"
@@ -131,53 +168,93 @@ export default function MainScreen() {
   };
 
   return (
-    <SafeAreaView style={commonStyles.container}>
-      <View style={styles.container}>
-        <View style={styles.content}>
-          {renderContent()}
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Financial Tracker</Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            onPress={() => setShowDatabaseSetup(true)}
+            style={styles.headerButton}
+          >
+            <Icon name="server-outline" size={20} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={styles.headerButton}>
+            <Icon name="log-out-outline" size={20} color={colors.text} />
+          </TouchableOpacity>
         </View>
-        <BottomTabBar activeTab={activeTab} onTabPress={setActiveTab} />
       </View>
+
+      {dataLoading ? (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading your data...</Text>
+        </View>
+      ) : (
+        renderContent()
+      )}
+
+      <BottomTabBar activeTab={activeTab} onTabPress={setActiveTab} />
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  headerTitle: {
+    ...commonStyles.title,
+    fontSize: 20,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  content: {
+    flex: 1,
+    padding: 20,
+  },
+  welcomeSection: {
     marginBottom: 24,
   },
   welcomeText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  usernameText: {
     fontSize: 24,
+    fontWeight: '600',
     color: colors.text,
-    fontWeight: '800',
+    marginBottom: 4,
   },
-  logoutButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: colors.backgroundAlt,
+  syncStatus: {
+    fontSize: 14,
+    color: colors.success,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   cardsContainer: {
     gap: 16,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: colors.text,
+  },
 });
+
+export default MainScreen;

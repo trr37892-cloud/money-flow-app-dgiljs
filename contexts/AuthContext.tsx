@@ -1,21 +1,9 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, AuthContextType } from '../types';
+import { supabase } from '../config/supabase';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const STORAGE_KEYS = {
-  USERS: 'users',
-  CURRENT_USER: 'currentUser',
-};
-
-interface StoredUser {
-  id: string;
-  username: string;
-  password: string;
-  createdAt: string;
-}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -23,13 +11,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     checkAuthState();
+    
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+      if (session?.user) {
+        const userData: User = {
+          id: session.user.id,
+          username: session.user.email || session.user.id,
+          createdAt: session.user.created_at || new Date().toISOString(),
+        };
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const checkAuthState = async () => {
     try {
-      const currentUserData = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-      if (currentUserData) {
-        const userData = JSON.parse(currentUserData);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const userData: User = {
+          id: session.user.id,
+          username: session.user.email || session.user.id,
+          createdAt: session.user.created_at || new Date().toISOString(),
+        };
         setUser(userData);
         console.log('User authenticated:', userData.username);
       }
@@ -42,41 +52,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (username: string, password: string): Promise<boolean> => {
     try {
-      // Get existing users
-      const usersData = await AsyncStorage.getItem(STORAGE_KEYS.USERS);
-      const users: StoredUser[] = usersData ? JSON.parse(usersData) : [];
+      const { data, error } = await supabase.auth.signUp({
+        email: username,
+        password: password,
+      });
 
-      // Check if username already exists
-      const existingUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-      if (existingUser) {
-        console.log('Username already exists');
+      if (error) {
+        console.log('Registration error:', error.message);
         return false;
       }
 
-      // Create new user
-      const newUser: StoredUser = {
-        id: Date.now().toString(),
-        username,
-        password, // In a real app, this should be hashed
-        createdAt: new Date().toISOString(),
-      };
+      if (data.user) {
+        console.log('User registered successfully:', username);
+        return true;
+      }
 
-      // Save to users list
-      const updatedUsers = [...users, newUser];
-      await AsyncStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
-
-      // Set as current user
-      const userForContext: User = {
-        id: newUser.id,
-        username: newUser.username,
-        createdAt: newUser.createdAt,
-      };
-
-      await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(userForContext));
-      setUser(userForContext);
-
-      console.log('User registered successfully:', username);
-      return true;
+      return false;
     } catch (error) {
       console.log('Error registering user:', error);
       return false;
@@ -85,32 +76,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      // Get existing users
-      const usersData = await AsyncStorage.getItem(STORAGE_KEYS.USERS);
-      const users: StoredUser[] = usersData ? JSON.parse(usersData) : [];
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: username,
+        password: password,
+      });
 
-      // Find user with matching credentials
-      const user = users.find(u => 
-        u.username.toLowerCase() === username.toLowerCase() && u.password === password
-      );
-
-      if (!user) {
-        console.log('Invalid credentials');
+      if (error) {
+        console.log('Login error:', error.message);
         return false;
       }
 
-      // Set as current user
-      const userForContext: User = {
-        id: user.id,
-        username: user.username,
-        createdAt: user.createdAt,
-      };
+      if (data.user) {
+        console.log('User logged in successfully:', username);
+        return true;
+      }
 
-      await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(userForContext));
-      setUser(userForContext);
-
-      console.log('User logged in successfully:', username);
-      return true;
+      return false;
     } catch (error) {
       console.log('Error logging in:', error);
       return false;
@@ -119,9 +100,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async (): Promise<void> => {
     try {
-      await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-      setUser(null);
-      console.log('User logged out');
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.log('Logout error:', error.message);
+      } else {
+        console.log('User logged out');
+      }
     } catch (error) {
       console.log('Error logging out:', error);
     }
