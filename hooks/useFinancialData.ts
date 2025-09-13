@@ -1,8 +1,15 @@
 
 import { useState, useEffect } from 'react';
-import { Expense, Income, Loan, Debt, MonthlyData, LoanPayment, DebtTransaction } from '../types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Expense, Income, Loan, Debt, MonthlyData } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase, TABLES } from '../config/supabase';
+
+const getStorageKeys = (userId: string) => ({
+  EXPENSES: `expenses_${userId}`,
+  INCOME: `income_${userId}`,
+  LOANS: `loans_${userId}`,
+  DEBTS: `debts_${userId}`,
+});
 
 export const useFinancialData = () => {
   const { user } = useAuth();
@@ -12,7 +19,7 @@ export const useFinancialData = () => {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Load data from Supabase when user changes
+  // Load data from storage when user changes
   useEffect(() => {
     if (user) {
       loadAllData();
@@ -30,52 +37,72 @@ export const useFinancialData = () => {
     if (!user) return;
     
     try {
-      setLoading(true);
-      console.log('Loading financial data for user:', user.username);
-
-      // Load all data in parallel
-      const [expensesResult, incomeResult, loansResult, debtsResult] = await Promise.all([
-        supabase.from(TABLES.EXPENSES).select('*').eq('user_id', user.id).order('date', { ascending: false }),
-        supabase.from(TABLES.INCOME).select('*').eq('user_id', user.id).order('date', { ascending: false }),
-        supabase.from(TABLES.LOANS).select(`
-          *,
-          loan_payments (*)
-        `).eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from(TABLES.DEBTS).select(`
-          *,
-          debt_transactions (*)
-        `).eq('user_id', user.id).order('created_at', { ascending: false }),
+      const STORAGE_KEYS = getStorageKeys(user.id);
+      const [expensesData, incomeData, loansData, debtsData] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEYS.EXPENSES),
+        AsyncStorage.getItem(STORAGE_KEYS.INCOME),
+        AsyncStorage.getItem(STORAGE_KEYS.LOANS),
+        AsyncStorage.getItem(STORAGE_KEYS.DEBTS),
       ]);
 
-      if (expensesResult.error) console.log('Error loading expenses:', expensesResult.error);
-      else setExpenses(expensesResult.data || []);
-
-      if (incomeResult.error) console.log('Error loading income:', incomeResult.error);
-      else setIncome(incomeResult.data || []);
-
-      if (loansResult.error) console.log('Error loading loans:', loansResult.error);
-      else {
-        const loansWithPayments = (loansResult.data || []).map(loan => ({
-          ...loan,
-          payments: loan.loan_payments || [],
-        }));
-        setLoans(loansWithPayments);
-      }
-
-      if (debtsResult.error) console.log('Error loading debts:', debtsResult.error);
-      else {
-        const debtsWithTransactions = (debtsResult.data || []).map(debt => ({
-          ...debt,
-          transactions: debt.debt_transactions || [],
-        }));
-        setDebts(debtsWithTransactions);
-      }
-
-      console.log('Financial data loaded successfully');
+      if (expensesData) setExpenses(JSON.parse(expensesData));
+      if (incomeData) setIncome(JSON.parse(incomeData));
+      if (loansData) setLoans(JSON.parse(loansData));
+      if (debtsData) setDebts(JSON.parse(debtsData));
+      
+      console.log('Financial data loaded for user:', user.username);
     } catch (error) {
       console.log('Error loading financial data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveExpenses = async (newExpenses: Expense[]) => {
+    if (!user) return;
+    
+    try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
+      await AsyncStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(newExpenses));
+      setExpenses(newExpenses);
+    } catch (error) {
+      console.log('Error saving expenses:', error);
+    }
+  };
+
+  const saveIncome = async (newIncome: Income[]) => {
+    if (!user) return;
+    
+    try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
+      await AsyncStorage.setItem(STORAGE_KEYS.INCOME, JSON.stringify(newIncome));
+      setIncome(newIncome);
+    } catch (error) {
+      console.log('Error saving income:', error);
+    }
+  };
+
+  const saveLoans = async (newLoans: Loan[]) => {
+    if (!user) return;
+    
+    try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
+      await AsyncStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(newLoans));
+      setLoans(newLoans);
+    } catch (error) {
+      console.log('Error saving loans:', error);
+    }
+  };
+
+  const saveDebts = async (newDebts: Debt[]) => {
+    if (!user) return;
+    
+    try {
+      const STORAGE_KEYS = getStorageKeys(user.id);
+      await AsyncStorage.setItem(STORAGE_KEYS.DEBTS, JSON.stringify(newDebts));
+      setDebts(newDebts);
+    } catch (error) {
+      console.log('Error saving debts:', error);
     }
   };
 
@@ -111,237 +138,83 @@ export const useFinancialData = () => {
     return debts.reduce((sum, debt) => sum + debt.totalOwed, 0);
   };
 
-  const addExpense = async (expense: Omit<Expense, 'id'>) => {
-    if (!user) return;
-
-    try {
-      const newExpense = {
-        ...expense,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from(TABLES.EXPENSES)
-        .insert([newExpense])
-        .select()
-        .single();
-
-      if (error) {
-        console.log('Error adding expense:', error);
-        return;
-      }
-
-      setExpenses(prev => [data, ...prev]);
-      console.log('Expense added successfully');
-    } catch (error) {
-      console.log('Error adding expense:', error);
-    }
+  const addExpense = (expense: Omit<Expense, 'id'>) => {
+    const newExpense: Expense = {
+      ...expense,
+      id: Date.now().toString(),
+    };
+    const updatedExpenses = [...expenses, newExpense];
+    saveExpenses(updatedExpenses);
   };
 
-  const addIncome = async (incomeItem: Omit<Income, 'id'>) => {
-    if (!user) return;
-
-    try {
-      const newIncome = {
-        ...incomeItem,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from(TABLES.INCOME)
-        .insert([newIncome])
-        .select()
-        .single();
-
-      if (error) {
-        console.log('Error adding income:', error);
-        return;
-      }
-
-      setIncome(prev => [data, ...prev]);
-      console.log('Income added successfully');
-    } catch (error) {
-      console.log('Error adding income:', error);
-    }
+  const addIncome = (incomeItem: Omit<Income, 'id'>) => {
+    const newIncome: Income = {
+      ...incomeItem,
+      id: Date.now().toString(),
+    };
+    const updatedIncome = [...income, newIncome];
+    saveIncome(updatedIncome);
   };
 
-  const addLoan = async (loan: Omit<Loan, 'id' | 'payments'>) => {
-    if (!user) return;
-
-    try {
-      const newLoan = {
-        ...loan,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from(TABLES.LOANS)
-        .insert([newLoan])
-        .select()
-        .single();
-
-      if (error) {
-        console.log('Error adding loan:', error);
-        return;
-      }
-
-      const loanWithPayments = { ...data, payments: [] };
-      setLoans(prev => [loanWithPayments, ...prev]);
-      console.log('Loan added successfully');
-    } catch (error) {
-      console.log('Error adding loan:', error);
-    }
+  const addLoan = (loan: Omit<Loan, 'id' | 'payments'>) => {
+    const newLoan: Loan = {
+      ...loan,
+      id: Date.now().toString(),
+      payments: [],
+    };
+    const updatedLoans = [...loans, newLoan];
+    saveLoans(updatedLoans);
   };
 
-  const addLoanPayment = async (loanId: string, amount: number, description?: string) => {
-    if (!user) return;
-
-    try {
-      // First, add the payment record
-      const payment = {
-        loan_id: loanId,
-        amount,
-        date: new Date().toISOString().split('T')[0],
-        description,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data: paymentData, error: paymentError } = await supabase
-        .from(TABLES.LOAN_PAYMENTS)
-        .insert([payment])
-        .select()
-        .single();
-
-      if (paymentError) {
-        console.log('Error adding loan payment:', paymentError);
-        return;
+  const addLoanPayment = (loanId: string, amount: number, description?: string) => {
+    const updatedLoans = loans.map(loan => {
+      if (loan.id === loanId) {
+        const payment = {
+          id: Date.now().toString(),
+          amount,
+          date: new Date().toISOString().split('T')[0],
+          description,
+        };
+        return {
+          ...loan,
+          currentBalance: Math.max(0, loan.currentBalance - amount),
+          payments: [...loan.payments, payment],
+        };
       }
-
-      // Update the loan's current balance
-      const loan = loans.find(l => l.id === loanId);
-      if (!loan) return;
-
-      const newBalance = Math.max(0, loan.currentBalance - amount);
-      
-      const { error: updateError } = await supabase
-        .from(TABLES.LOANS)
-        .update({ currentBalance: newBalance })
-        .eq('id', loanId);
-
-      if (updateError) {
-        console.log('Error updating loan balance:', updateError);
-        return;
-      }
-
-      // Update local state
-      setLoans(prev => prev.map(l => {
-        if (l.id === loanId) {
-          return {
-            ...l,
-            currentBalance: newBalance,
-            payments: [...l.payments, paymentData],
-          };
-        }
-        return l;
-      }));
-
-      console.log('Loan payment added successfully');
-    } catch (error) {
-      console.log('Error adding loan payment:', error);
-    }
+      return loan;
+    });
+    saveLoans(updatedLoans);
   };
 
-  const addDebt = async (personName: string) => {
-    if (!user) return;
-
-    try {
-      const newDebt = {
-        personName,
-        totalOwed: 0,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from(TABLES.DEBTS)
-        .insert([newDebt])
-        .select()
-        .single();
-
-      if (error) {
-        console.log('Error adding debt:', error);
-        return;
-      }
-
-      const debtWithTransactions = { ...data, transactions: [] };
-      setDebts(prev => [debtWithTransactions, ...prev]);
-      console.log('Debt added successfully');
-    } catch (error) {
-      console.log('Error adding debt:', error);
-    }
+  const addDebt = (personName: string) => {
+    const newDebt: Debt = {
+      id: Date.now().toString(),
+      personName,
+      totalOwed: 0,
+      transactions: [],
+    };
+    const updatedDebts = [...debts, newDebt];
+    saveDebts(updatedDebts);
   };
 
-  const addDebtTransaction = async (debtId: string, amount: number, description: string) => {
-    if (!user) return;
-
-    try {
-      // First, add the transaction record
-      const transaction = {
-        debt_id: debtId,
-        amount,
-        date: new Date().toISOString().split('T')[0],
-        description,
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data: transactionData, error: transactionError } = await supabase
-        .from(TABLES.DEBT_TRANSACTIONS)
-        .insert([transaction])
-        .select()
-        .single();
-
-      if (transactionError) {
-        console.log('Error adding debt transaction:', transactionError);
-        return;
+  const addDebtTransaction = (debtId: string, amount: number, description: string) => {
+    const updatedDebts = debts.map(debt => {
+      if (debt.id === debtId) {
+        const transaction = {
+          id: Date.now().toString(),
+          amount,
+          date: new Date().toISOString().split('T')[0],
+          description,
+        };
+        return {
+          ...debt,
+          totalOwed: debt.totalOwed + amount,
+          transactions: [...debt.transactions, transaction],
+        };
       }
-
-      // Update the debt's total owed
-      const debt = debts.find(d => d.id === debtId);
-      if (!debt) return;
-
-      const newTotal = debt.totalOwed + amount;
-      
-      const { error: updateError } = await supabase
-        .from(TABLES.DEBTS)
-        .update({ totalOwed: newTotal })
-        .eq('id', debtId);
-
-      if (updateError) {
-        console.log('Error updating debt total:', updateError);
-        return;
-      }
-
-      // Update local state
-      setDebts(prev => prev.map(d => {
-        if (d.id === debtId) {
-          return {
-            ...d,
-            totalOwed: newTotal,
-            transactions: [...d.transactions, transactionData],
-          };
-        }
-        return d;
-      }));
-
-      console.log('Debt transaction added successfully');
-    } catch (error) {
-      console.log('Error adding debt transaction:', error);
-    }
+      return debt;
+    });
+    saveDebts(updatedDebts);
   };
 
   return {
